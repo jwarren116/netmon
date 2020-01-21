@@ -1,0 +1,76 @@
+version: '3.6'
+
+services:
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.5.1
+    container_name: elasticsearch
+    ports: ['127.0.0.1:9200:9200']
+    networks: ['stack']
+    volumes:
+      - 'es_data:/usr/share/elasticsearch/data'
+    #environment:
+    #  ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+    mem_limit: 512m
+    #deploy:
+    #  resources:
+    #    limits:
+    #      memory: 512M
+    healthcheck:
+      test: curl -s https://localhost:9200 >/dev/null; if [[ $$? == 52 ]]; then echo 0; else echo 1; fi
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.5.1
+    container_name: kibana
+    ports: ['127.0.0.1:5601:5601']
+    networks: ['stack']
+    depends_on: ['elasticsearch']
+    mem_limit: 256m
+    #deploy:
+    #  resources:
+    #    limits:
+    #      memory: 256M
+    healthcheck:
+      test: curl -s https://localhost:5601 >/dev/null; if [[ $$? == 52 ]]; then echo 0; else echo 1; fi
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  packetbeat:
+    image: docker.elastic.co/beats/packetbeat:7.5.1
+    container_name: packetbeat
+    # Packetbeat needs some elevated privileges to capture network traffic.
+    # We'll grant them with POSIX capabilities.
+    cap_add: ['NET_RAW', 'NET_ADMIN']
+    # Use "host mode" networking to allow Packetbeat to capture traffic from
+    # the real network interface on the host, rather than being isolated to the
+    # container's virtual interface.
+    network_mode: host
+    # Since we did that, Packetbeat is not part of the "stack" Docker network
+    # that the other containers are connected to, and thus can't resolve the
+    # hostname "elasticsearch". Instead, we'll tell it to find Elasticsearch
+    # on "localhost", which is the Docker host machine in this context.
+    depends_on: ['elasticsearch']
+    command: --strict.perms=false -e -E output.elasticsearch.hosts="https://localhost:9200" # -e flag to log to stderr and disable syslog/file output
+    secrets:
+      - source: packetbeat.yml
+        target: /usr/share/packetbeat/packetbeat.yml
+    depends_on: ['elasticsearch', 'kibana']
+    healthcheck:
+      test: packetbeat test config
+      interval: 30s
+      timeout: 15s
+      retries: 5
+
+networks: {stack: {}}
+
+# use docker volume to persist ES data outside of a container.
+volumes:
+  es_data:
+
+secrets:
+  packetbeat.yml:
+    file: ./config/packetbeat.yml
