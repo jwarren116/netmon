@@ -60,3 +60,7 @@ processors:
         - dns.question.name
         - dns.question.etld_plus_one
         - dns.response_code
+
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+  protocol: "http"
